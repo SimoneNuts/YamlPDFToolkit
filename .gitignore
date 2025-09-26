@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+
+# Outputs
+/pdf/
+*.pdf
+*.html
+
+
+# OS
+.DS_Store
+Thumbs.db
