@@ -24,7 +24,7 @@ python .\openapi_to_pdf.py --src .\examples --out .\pdf --keep-html
 ```pwsh
 brew install --cask google-chrome || true
 brew install node wkhtmltopdf || true
-python3 ./openapi_to_pdf.py --src ./examples --out ./pdf --keep-html
+python ./openapi_to_pdf.py --src ./examples --out ./pdf --keep-html
 ```
 
 ### Docker (no local installs)
@@ -55,7 +55,7 @@ options:
 
 ### 🧪 Try it
 ```pwsh
-python3 ./openapi_to_pdf.py --src ./examples --out ./pdf --keep-html
+python ./openapi_to_pdf.py --src ./examples --out ./pdf --keep-html
 ```
 
 ### ❓ FAQ

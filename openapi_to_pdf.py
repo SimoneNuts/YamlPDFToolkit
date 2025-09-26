@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Converti tutti gli OpenAPI YAML/JSON in PDF (Windows-friendly).
-Pipeline: YAML/JSON --(ReDoc via redoc-cli)--> HTML --(Chrome/Edge headless o wkhtmltopdf)--> PDF
+Pipeline: YAML/JSON --(Redocly CLI build-docs oppure redoc-cli)--> HTML --(Chrome/Edge headless o wkhtmltopdf)--> PDF
 """
 import argparse
 import os
@@ -21,53 +21,54 @@ def which_many(candidates):
             return p
     return None
 
-
 def find_chrome(explicit: str | None = None) -> str | None:
     if explicit and Path(explicit).exists():
         return explicit
     bins = [
-        r"chrome.exe", r"msedge.exe",
-        r"google-chrome", r"chromium", r"chromium-browser", r"msedge",
+        "chrome.exe", "msedge.exe",
+        "google-chrome", "chromium", "chromium-browser", "msedge",
     ]
     p = which_many(bins)
     if p:
         return p
     if os.name == "nt":
         guesses = [
-            r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-            r"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-            r"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-            r"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
         ]
         for g in guesses:
             if Path(g).is_file():
                 return g
     return None
 
-
 def find_wkhtml(explicit: str | None = None) -> str | None:
     if explicit and Path(explicit).exists():
         return explicit
-    return which_many(["wkhtmltopdf.exe", "wkhtmltopdf"]) 
+    return which_many(["wkhtmltopdf.exe", "wkhtmltopdf"])
 
-
-def find_npx_and_redoc():
-    npx_bin = which_many(["npx.cmd", "npx"])    
-    redoc_bin = which_many(["redoc-cli.cmd", "redoc-cli"]) 
+def find_node_tools():
+    """Return (npx_bin, redocly_bin, redoc_cli_bin). Binaries may be None."""
+    npx_bin = which_many(["npx.cmd", "npx"])
+    redocly_bin = which_many(["redocly.cmd", "redocly"])
+    redoc_cli_bin = which_many(["redoc-cli.cmd", "redoc-cli"])
     if os.name == "nt":
-        appdata = os.environ.get("AppData", r"C:\\Users\\%USERNAME%\\AppData\\Roaming")
+        appdata = os.environ.get("AppData", r"C:\Users\%USERNAME%\AppData\Roaming")
         guesses = [
-            rf"{appdata}\\npm\\npx.cmd",
-            rf"{appdata}\\npm\\redoc-cli.cmd",
+            rf"{appdata}\npm\npx.cmd",
+            rf"{appdata}\npm\redocly.cmd",
+            rf"{appdata}\npm\redoc-cli.cmd",
         ]
         for g in guesses:
             if Path(g).is_file():
                 if g.endswith("npx.cmd") and not npx_bin:
                     npx_bin = g
-                if g.endswith("redoc-cli.cmd") and not redoc_bin:
-                    redoc_bin = g
-    return npx_bin, redoc_bin
-
+                if g.endswith("redocly.cmd") and not redocly_bin:
+                    redocly_bin = g
+                if g.endswith("redoc-cli.cmd") and not redoc_cli_bin:
+                    redoc_cli_bin = g
+    return npx_bin, redocly_bin, redoc_cli_bin
 
 def run(cmd, cwd=None):
     try:
@@ -79,22 +80,54 @@ def run(cmd, cwd=None):
         print(f"❌ Comando fallito: {' '.join(map(str, cmd))}", file=sys.stderr)
         sys.exit(e.returncode)
 
-
 # ------------------------- converters ------------------------- #
 
-def build_html_with_redoc(spec_path: Path, out_html: Path, npx_path: str | None, redoc_path: str | None, redoc_args: list[str] | None):
+def build_html(spec_path: Path, out_html: Path,
+               npx_path: str | None,
+               redocly_path: str | None,
+               redoc_cli_path: str | None,
+               redoc_args: list[str] | None):
+    """
+    Prova in ordine:
+      1) npx @redocly/cli build-docs <api> -o <html>
+      2) redocly build-docs <api> -o <html>
+      3) redoc-cli bundle <api> -o <html>   (deprecato, ma fallback)
+    """
     args = redoc_args or []
-    if npx_path:
-        cmd = [npx_path, "--yes", "redoc-cli", "bundle", str(spec_path), "-o", str(out_html), *args]
-        run(cmd)
-        return
-    if redoc_path:
-        cmd = [redoc_path, "bundle", str(spec_path), "-o", str(out_html), *args]
-        run(cmd)
-        return
-    print("❌ Né 'npx' né 'redoc-cli' trovati. Installa Node LTS (include npx) oppure `npm i -g redoc-cli`.", file=sys.stderr)
-    sys.exit(1)
 
+    # Redocly via npx (@redocly/cli)
+    if npx_path:
+        cmd = [npx_path, "--yes", "@redocly/cli", "build-docs", str(spec_path), "-o", str(out_html), *args]
+        try:
+            run(cmd)
+            return
+        except SystemExit as e:
+            # fallback sotto
+            if e.code == 127:
+                pass
+            else:
+                raise
+
+    # Redocly installato globalmente
+    if redocly_path:
+        cmd = [redocly_path, "build-docs", str(spec_path), "-o", str(out_html), *args]
+        try:
+            run(cmd)
+            return
+        except SystemExit as e:
+            if e.code == 127:
+                pass
+            else:
+                raise
+
+    # redoc-cli (deprecated) come fallback
+    if redoc_cli_path:
+        cmd = [redoc_cli_path, "bundle", str(spec_path), "-o", str(out_html), *args]
+        run(cmd)
+        return
+
+    print("❌ Né Redocly CLI né redoc-cli trovati. Installa Node LTS (include npx) oppure `npm i -g @redocly/cli`.", file=sys.stderr)
+    sys.exit(1)
 
 def chrome_to_pdf(chrome_bin, in_html: Path, out_pdf: Path, landscape=False):
     cmd = [
@@ -108,7 +141,6 @@ def chrome_to_pdf(chrome_bin, in_html: Path, out_pdf: Path, landscape=False):
         cmd.append("--landscape")
     run(cmd)
 
-
 def wkhtml_to_pdf(wk_bin, in_html: Path, out_pdf: Path, landscape=False, margin="12mm"):
     cmd = [
         wk_bin, "--print-media-type", "--enable-local-file-access",
@@ -119,7 +151,6 @@ def wkhtml_to_pdf(wk_bin, in_html: Path, out_pdf: Path, landscape=False, margin=
     if landscape:
         cmd[1:1] = ["--orientation", "Landscape"]
     run(cmd)
-
 
 # ------------------------- main ------------------------- #
 
@@ -133,14 +164,14 @@ def main():
     p.add_argument("--keep-html", action="store_true", help="Mantieni gli HTML generati accanto ai PDF")
     p.add_argument("--chrome-path", default=None, help="Percorso esplicito di Chrome/Edge/Chromium")
     p.add_argument("--wkhtml-path", default=None, help="Percorso esplicito di wkhtmltopdf")
-    p.add_argument("--redoc-args", default=None, help="Argomenti extra da passare a redoc-cli (stringa intera)")
+    p.add_argument("--redoc-args", default=None, help="Argomenti extra per Redocly/Redoc (stringa intera)")
     args = p.parse_args()
 
     src_dir = Path(args.src).resolve()
     out_dir = Path(args.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    npx_bin, redoc_bin = find_npx_and_redoc()
+    npx_bin, redocly_bin, redoc_cli_bin = find_node_tools()
     chrome_bin = find_chrome(args.chrome_path)
     wkhtml_bin = find_wkhtml(args.wkhtml_path)
 
@@ -176,8 +207,8 @@ def main():
             pdf_path = out_dir / f"{name}.pdf"
             html_out = (out_dir / f"{name}.html") if args.keep_html else html_tmp
 
-            print(f"\n📦 [{name}] Bundling con ReDoc…")
-            build_html_with_redoc(spec, html_tmp, npx_bin, redoc_bin, redoc_extra)
+            print(f"\n📦 [{name}] Generazione HTML con Redocly/ReDoc…")
+            build_html(spec, html_tmp, npx_bin, redocly_bin, redoc_cli_bin, redoc_extra)
 
             if args.keep_html and html_tmp != html_out:
                 try:
